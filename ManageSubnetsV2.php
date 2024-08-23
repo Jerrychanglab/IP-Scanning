@@ -1,6 +1,10 @@
 <?php
 // 定義網段配置文件所在的資料夾
 $subnets_dir = 'subnets/';
+$fping_prev_results_dir = 'fping_prev_results/';
+$fping_red_lights_dir = 'fping_red_lights/';
+$fping_reserved_dir = 'fping_reserved/';
+$fping_results_dir = 'fping_results/';
 
 // 確保資料夾存在
 if (!file_exists($subnets_dir)) {
@@ -47,6 +51,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (file_exists($filePath)) {
             unset($subnets[$category]);
             if (unlink($filePath)) {
+                // 同時移除相對應的文件
+                $files_to_remove = [
+                    $fping_prev_results_dir . $category . '_results.txt',
+                    $fping_red_lights_dir . $category . '_red_light.txt',
+                    $fping_reserved_dir . $category . '_reserved.txt',
+                    $fping_results_dir . $category . '_results.txt',
+                    $fping_results_dir . $category . '_temp_results.txt'
+                ];
+                foreach ($files_to_remove as $file) {
+                    if (file_exists($file)) {
+                        unlink($file);
+                    }
+                }
                 echo json_encode(['status' => 'success', 'subnets' => $subnets]);
             } else {
                 echo json_encode(['status' => 'error', 'message' => '文件刪除失敗！']);
