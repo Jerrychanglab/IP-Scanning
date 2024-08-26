@@ -41,23 +41,19 @@ while true; do
                 red_light_file="$red_light_dir/${label}_red_light.txt"
 
                 echo "Scanning subnet: $subnet"
-                
-                # 清空臨時文件
-                > $temp_file
-                
-                # 將 /24 網段拆分為 /32（每個 IP）並逐一掃描
-                nmap -n -sL $subnet | grep 'Nmap scan report for' | awk '{print $NF}' | while read ip; do
-                    # 單個 IP 地址掃描
-                    fping -c1 -t50 $ip 2>/dev/null && echo $ip >> $temp_file &
-                done
-
-                # 等待所有背景任務完成
-                wait
+                {
+                    echo "============================="
+                    echo "[$label] - $subnet"
+                    echo "============================="
+                    # 使用 fping 掃描網段，結果寫入暫存檔
+                    fping -a -g $subnet 2>/dev/null
+                    echo ""
+                } > $temp_file
 
                 # 保存前一次的結果
                 cp $output_file $prev_output_file 2>/dev/null
 
-                # 將臨時文件的內容寫入主結果文件
+                # 將暫存檔的內容寫入主結果檔
                 cat $temp_file > $output_file
 
                 # 比較前後兩次的掃描結果
@@ -77,7 +73,7 @@ while true; do
                     sort -u $red_light_file -o $red_light_file
                 fi
 
-                # 刪除臨時文件
+                # 刪除暫存檔
                 rm $temp_file
                 # 設置文件擁有者和權限
                 chown apache:apache $output_file $prev_output_file $red_light_file
