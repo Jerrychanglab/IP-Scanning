@@ -2,6 +2,7 @@
 // 定義結果文件目錄
 $reserve_dir = 'fping_reserved/';
 $red_light_dir = 'fping_red_lights/';
+$results_dir = 'fping_results/';
 
 if (!file_exists($reserve_dir)) {
     mkdir($reserve_dir, 0777, true);
@@ -11,8 +12,8 @@ if (!file_exists($reserve_dir)) {
 
 if (!file_exists($red_light_dir)) {
     mkdir($red_light_dir, 0777, true);
-    chown($reserve_dir, 'apache');
-    chgrp($reserve_dir, 'apache');
+    chown($red_light_dir, 'apache');
+    chgrp($red_light_dir, 'apache');
 }
 
 // 獲取來自前端的參數
@@ -73,8 +74,49 @@ if ($ip && $label) {
 
     // 保存更新後的紅燈 IP 到文件
     file_put_contents($red_light_file, implode(PHP_EOL, $updated_red_lights));
-    chown($reserve_file, 'apache');
-    chgrp($reserve_file, 'apache');
-    chmod($reserve_file, 0644);
+    chown($red_light_file, 'apache');
+    chgrp($red_light_file, 'apache');
+    chmod($red_light_file, 0644);
+}
+
+// 獲取所有有狀態的 IP
+$status_ips = [];
+
+foreach (glob($results_dir . '*_results.txt') as $result_file) {
+    $label = basename($result_file, '_results.txt');
+    $content = file($result_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+
+    // 讀取當前掃描結果中的綠燈 IP
+    foreach ($content as $line) {
+        if (!preg_match('/^=|^\[/', $line)) {
+            $status_ips[] = $line;
+        }
+    }
+
+    // 讀取黃燈 IP（預留 IP）
+    $reserve_file = $reserve_dir . $label . '_reserved.txt';
+    if (file_exists($reserve_file)) {
+        $reserved_ips = file($reserve_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($reserved_ips as $entry) {
+            list($ip, $machine_name) = explode('|', $entry);
+            $status_ips[] = $ip;
+        }
+    }
+
+    // 讀取紅燈 IP
+    $red_light_file = $red_light_dir . $label . '_red_light.txt';
+    if (file_exists($red_light_file)) {
+        $red_light_ips = file($red_light_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        $status_ips = array_merge($status_ips, $red_light_ips);
+    }
+}
+
+// 移除重複的 IP 地址
+$status_ips = array_unique($status_ips);
+
+// 輸出結果，每行一個 IP
+header('Content-Type: text/plain');
+foreach ($status_ips as $ip) {
+    echo $ip . PHP_EOL;
 }
 ?>
