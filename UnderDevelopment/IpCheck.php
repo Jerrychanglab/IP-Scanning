@@ -22,20 +22,20 @@ $prev_table_data = [];
 $subnets = [];
 $desired_order = [];
 
-// Define the directory where the subnet files are located
+// 定義子網檔案的目錄
 $subnets_dir = __DIR__ . '/subnets/';
 
-// Iterate over each PHP file in the subnets directory
+// 遍歷每個 PHP 子網檔案
 foreach (glob($subnets_dir . '*.php') as $file) {
     $data = include($file);
-    $category = strtoupper($data['category']); // Convert category to uppercase
+    $category = strtoupper($data['category']); // 將 category 轉為大寫
     $ip = $data['ip'];
     $mask = $data['mask'];
 
-    // Add to subnets array
+    // 加入子網數組
     $subnets[$category] = "$ip/$mask";
 
-    // Add to desired_order array (preserving the order of files)
+    // 加入到 desired_order 數組中（保持檔案順序）
     $desired_order[] = $category;
 }
 
@@ -319,6 +319,7 @@ foreach ($desired_order as $label) {
     }
 
     </style>
+
     <script>
         function updateTable() {
             var xhr = new XMLHttpRequest();
@@ -333,7 +334,9 @@ foreach ($desired_order as $label) {
                     // 更新表格
                     <?php foreach ($desired_order as $label): ?>
                         for (var i = 1; i <= 254; i++) {
-                            var ip = "10.31.<?php echo (array_search($label, array_keys($subnets)) + 32); ?>." + i;
+                            var subnetIp = "<?php echo explode('/', $subnets[$label])[0]; ?>";
+                            var subnetBase = subnetIp.split('.').slice(0, 3).join('.');
+                            var ip = subnetBase + "." + i;
                             var cell = document.getElementById(ip + "_<?php echo $label; ?>");
 
                             if (cell) {
@@ -458,7 +461,9 @@ foreach ($desired_order as $label) {
             <td><?php echo $i; ?></td>
             <?php foreach ($desired_order as $label): ?>
             <?php
-                $ip = "10.31." . (array_search($label, array_keys($subnets)) + 32) . "." . $i;
+                $subnet_ip = explode('/', $subnets[$label])[0];
+                $subnet_base = implode('.', array_slice(explode('.', $subnet_ip), 0, 3)); // 取前三個部分
+                $ip = $subnet_base . "." . $i;
                 $is_used = isset($table_data[$label][$i]) && $table_data[$label][$i] === "已使用";
                 $was_used = isset($prev_table_data[$label][$i]) && $prev_table_data[$label][$i] === "已使用";
                 $is_reserved = array_key_exists($ip, $reserved_machines);
