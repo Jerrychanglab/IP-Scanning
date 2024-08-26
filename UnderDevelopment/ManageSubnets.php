@@ -269,8 +269,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // 遮罩格式驗證
-            if (action !== 'delete' && (isNaN(mask) || mask < 1 || mask > 32)) {
-                alert('遮罩必須是 1 到 32 之間的數字！');
+            if (action !== 'delete' && (isNaN(mask) || mask < 24 || mask > 32)) {
+                alert('遮罩目前只開放24 ~ 32的數字！');
                 return;
             }
 
