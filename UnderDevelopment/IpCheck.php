@@ -171,7 +171,7 @@ foreach ($desired_order as $label) {
         color: green;
         font-size: 18px;
         font-weight: bold;
-        cursor: not-allowed;
+        cursor: pointer;
     }
 
     .reserved {
@@ -210,7 +210,6 @@ foreach ($desired_order as $label) {
 
     .disabled {
         color: gray;
-        cursor: not-allowed;
     }
 
     td:not(.disabled):hover {
@@ -318,6 +317,27 @@ foreach ($desired_order as $label) {
         font-size: 1.2em;
     }
 
+    .snmp-result {
+        display: none;
+        margin-top: 5px;
+        font-size: 12px;
+        color: blue;
+    }
+
+    /* 新增遮罩层的样式 */
+    #overlay {
+        position: fixed;
+        display: none;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 9998;
+        cursor: not-allowed;
+    }
     </style>
 
     <script>
@@ -374,12 +394,76 @@ foreach ($desired_order as $label) {
         }
 
         // 設置定期更新，每10秒更新一次
-        setInterval(updateTable, 10000);
+        setInterval(updateTable, 5000);
         // 頁面載入時立即更新一次
         window.onload = updateTable;
 
+        function performSNMPwalk(ip) {
+            console.log("performSNMPwalk called for IP: " + ip);
+
+            // 顯示遮罩層
+            document.getElementById('overlay').style.display = 'block';
+
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "SnmpWalk.php?ip=" + ip, true);
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    var result = xhr.responseText;
+                    console.log("SNMPwalk result: " + result);
+
+                    // 彈出一個新的窗口顯示機器名稱
+                    var resultModal = document.createElement("div");
+                    resultModal.className = "modal show";
+                    resultModal.style.zIndex = "10000"; 
+                    resultModal.innerHTML = `
+                        <div class="modal-content">
+                            <span class="close" onclick="this.parentElement.parentElement.remove(); document.getElementById('overlay').style.display = 'none';">&times;</span>
+                            <p>SNMP掃描結果</p>
+                            <p>${result}</p>
+                            <button class="confirm" onclick="this.parentElement.parentElement.remove(); document.getElementById('overlay').style.display = 'none';">關閉</button>
+                        </div>
+                    `;
+
+                    document.body.appendChild(resultModal); // 將新窗口添加到頁面中
+                } else if (xhr.readyState == 4) {
+                    console.error("SNMPwalk request failed with status: " + xhr.status);
+                    document.getElementById('overlay').style.display = 'none'; // 如果請求失敗，移除遮罩層
+                }
+            };
+            xhr.send();
+        }
+
         function reserveIP(label, ip) {
             var element = document.getElementById(ip + "_" + label);
+            var isUsed = element.classList.contains('used');
+
+            if (isUsed) {
+                console.log("IP is used, performing SNMPwalk...");
+                var modal = document.getElementById("myModal");
+                var modalText = document.getElementById("modal-text");
+                var machineNameInput = document.getElementById("machine-name");
+
+                modalText.innerHTML = "您要對IP:" + ip + " 進行SNMP掃描嗎？";
+                machineNameInput.style.display = "none";
+
+                modal.classList.add('show');
+
+                var confirmBtn = document.getElementsByClassName("confirm")[0];
+                confirmBtn.onclick = function() {
+                    modal.classList.remove('show');
+                    performSNMPwalk(ip); // 執行SNMP掃描
+                };
+
+                var closeBtn = document.getElementsByClassName("close")[0];
+                var cancelBtn = document.getElementsByClassName("cancel")[0];
+                closeBtn.onclick = cancelBtn.onclick = function() {
+                    modal.classList.remove('show');
+                };
+
+                return; // 阻止後續的預留或取消紅燈操作
+            }
+
+            // 剩餘的 reserveIP 函數邏輯（如果不是綠色燈號則繼續執行）
             var isReserved = element.classList.contains('reserved');
             var isLost = element.classList.contains('lost');
 
@@ -444,6 +528,10 @@ foreach ($desired_order as $label) {
 </head>
 <body>
     <h1>NTP Site 內網IP 掃描</h1>
+    
+    <!-- 遮罩層 -->
+    <div id="overlay"></div>
+    
     <table>
         <tr>
             <th rowspan="2" class="sticky-header"></th>
@@ -490,6 +578,7 @@ foreach ($desired_order as $label) {
                 echo '🔴';
             }
             ?>
+            <div id="<?php echo $ip . '_snmp_result'; ?>" class="snmp-result"></div> <!-- 用於顯示 SNMP 結果 -->
             </td>
             <?php endforeach; ?>
         </tr>
