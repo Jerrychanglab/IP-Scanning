@@ -433,97 +433,185 @@ foreach ($desired_order as $label) {
             xhr.send();
         }
 
-        function reserveIP(label, ip) {
-            var element = document.getElementById(ip + "_" + label);
-            var isUsed = element.classList.contains('used');
+function reserveIP(label, ip) {
+    var element = document.getElementById(ip + "_" + label);
+    var isUsed = element.classList.contains('used');
+    var isReserved = element.classList.contains('reserved');
+    var isLost = element.classList.contains('lost');
 
-            if (isUsed) {
-                console.log("IP is used, performing SNMPwalk...");
-                var modal = document.getElementById("myModal");
-                var modalText = document.getElementById("modal-text");
-                var machineNameInput = document.getElementById("machine-name");
+    // 如果同時存在綠燈（used）和黃燈（reserved），執行取消註解的操作
+    if (isUsed && isReserved) {
+        console.log("綠燈和黃燈同時存在，執行取消註解操作...");
 
-                modalText.innerHTML = "您要對IP:" + ip + " 進行SNMP掃描嗎？";
-                machineNameInput.style.display = "none";
+        // 顯示取消註解的確認彈窗
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "none";
 
-                modal.classList.add('show');
+        modalText.innerHTML = "確定要取消預留 IP " + ip + " 嗎？";
+        modal.classList.add('show');
 
-                var confirmBtn = document.getElementsByClassName("confirm")[0];
-                confirmBtn.onclick = function() {
-                    modal.classList.remove('show');
-                    performSNMPwalk(ip); // 執行SNMP掃描
-                };
-
-                var closeBtn = document.getElementsByClassName("close")[0];
-                var cancelBtn = document.getElementsByClassName("cancel")[0];
-                closeBtn.onclick = cancelBtn.onclick = function() {
-                    modal.classList.remove('show');
-                };
-
-                return; // 阻止後續的預留或取消紅燈操作
-            }
-
-            // 剩餘的 reserveIP 函數邏輯（如果不是綠色燈號則繼續執行）
-            var isReserved = element.classList.contains('reserved');
-            var isLost = element.classList.contains('lost');
-
-            if (element && element.classList.contains('disabled')) {
-                return; 
-            }
-
-            var modal = document.getElementById("myModal");
-            var modalText = document.getElementById("modal-text");
-            var machineNameInput = document.getElementById("machine-name");
-            var confirmBtn = document.getElementsByClassName("confirm")[0];
-
-            if (isReserved) {
-                modalText.innerHTML = "確定取消預留 IP " + ip + " 嗎？";
-                machineNameInput.style.display = "none"; 
-            } else if (isLost) {
-                modalText.innerHTML = "確定取消紅燈狀態 IP " + ip + " 嗎？";
-                machineNameInput.style.display = "none"; 
-            } else {
-                modalText.innerHTML = "輸入主機名稱[預留] IP: " + ip;
-                machineNameInput.value = "";
-                machineNameInput.style.display = "block";
-            }
-
-            modal.classList.add('show');
-
-            confirmBtn.onclick = function() {
-                var machineName = machineNameInput.value;
-                var xhr = new XMLHttpRequest();
-
-                if (isReserved || isLost) {
-                    var url = "ReserveIp.php?label=" + label + "&ip=" + ip;
-                    if (isLost) {
-                        url += "&remove_red_light=true";
-                    }
-                    xhr.open("GET", url, true);
-                } else {
-                    if (!machineName) {
-                        alert("必須輸入機器名稱才能預留 IP。");
-                        return;
-                    }
-                    xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&machine=" + encodeURIComponent(machineName), true);
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&remove_reservation=true", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    updateTable(); // 更新表格
                 }
-
-                xhr.onreadystatechange = function () {
-                    if (xhr.readyState == 4 && xhr.status == 200) {
-                        updateTable(); // 更新表格而不是重新加載頁面
-                    }
-                };
-                xhr.send();
-                modal.classList.remove('show');
             };
+            xhr.send();
+            modal.classList.remove('show');
+        };
 
-            var closeBtn = document.getElementsByClassName("close")[0];
-            var cancelBtn = document.getElementsByClassName("cancel")[0];
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
 
-            closeBtn.onclick = cancelBtn.onclick = function() {
-                modal.classList.remove('show');
+        return; // 阻止其他操作
+    }
+
+    // 如果只有綠燈存在，執行 SNMP 掃描
+    if (isUsed && !isReserved) {
+        console.log("IP is used, performing SNMPwalk...");
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "none";
+
+        modalText.innerHTML = "您要對IP:" + ip + " 進行SNMP掃描嗎？";
+        modal.classList.add('show');
+
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            modal.classList.remove('show');
+            performSNMPwalk(ip); // 執行SNMP掃描
+        };
+
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
+
+        return; // 阻止後續的預留或取消紅燈操作
+    }
+
+    // 如果存在紅燈（lost），則取消預留狀態
+    if (isLost) {
+        console.log("紅燈存在，執行取消操作...");
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "none";
+
+        modalText.innerHTML = "確定取消紅燈狀態 IP " + ip + " 嗎？";
+        modal.classList.add('show');
+
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&remove_red_light=true", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    updateTable(); // 更新表格
+                }
             };
-        }
+            xhr.send();
+            modal.classList.remove('show');
+        };
+
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
+
+        return; // 阻止其他操作
+    }
+
+    // 處理黃燈（reserved）的情況
+    if (isReserved && !isUsed) {
+        console.log("執行預留 IP 操作...");
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "none";
+
+        modalText.innerHTML = "確定取消預留 IP " + ip + " 嗎？";
+        modal.classList.add('show');
+
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&remove_reservation=true", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    updateTable(); // 更新表格
+                }
+            };
+            xhr.send();
+            modal.classList.remove('show');
+        };
+
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
+
+        return; // 阻止其他操作
+    }
+
+    // 如果既沒有綠燈也沒有紅燈，則處理預留IP
+    if (!isUsed && !isLost) {
+        console.log("執行預留 IP 操作...");
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "block";
+
+        modalText.innerHTML = "輸入主機名稱[預留] IP: " + ip;
+        modal.classList.add('show');
+
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            var machineName = machineNameInput.value;
+            if (!machineName) {
+                alert("必須輸入機器名稱才能預留 IP。");
+                return;
+            }
+
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&machine=" + encodeURIComponent(machineName), true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    updateTable(); // 更新表格
+                }
+            };
+            xhr.send();
+            modal.classList.remove('show');
+        };
+
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
+
+        return; // 阻止其他操作
+    }
+}
+
+
     </script>
 </head>
 <body>
