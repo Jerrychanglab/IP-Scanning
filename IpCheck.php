@@ -1,4 +1,33 @@
 <?php
+session_start();
+
+// 設置會話超時時間為30分鐘（1800秒）
+// 防止页面被缓存
+header("Cache-Control: no-cache, no-store, must-revalidate"); // HTTP 1.1
+header("Pragma: no-cache"); // HTTP 1.0
+header("Expires: 0"); // Proxies
+
+$timeout_duration = 300;
+
+// 檢查是否有上次活動時間記錄
+if (isset($_SESSION['LAST_ACTIVITY']) && (time() - $_SESSION['LAST_ACTIVITY']) > $timeout_duration) {
+    // 如果距離上次活動超過30分鐘，則清空會話並重定向到登入頁面
+    session_unset();
+    session_destroy();
+    header('Location: /');
+    exit;
+}
+
+// 更新上次活動時間
+$_SESSION['LAST_ACTIVITY'] = time();
+
+// 檢查用戶是否已經登入
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header('Location: /Login/Login.php');
+    exit;
+}
+
+
 // 定義結果文件目錄
 $directory = 'fping_results/';
 $prev_output_dir = 'fping_prev_results/';
@@ -18,32 +47,26 @@ $files = glob($directory . '*.txt');
 // 初始化表格數據
 $table_data = [];
 $prev_table_data = [];
-$subnets = [
-    "BORDER" => "10.31.32.0/24",
-    "MONITOR" => "10.31.33.0/24",
-    "ESXI" => "10.31.34.0/24",
-    "DB" => "10.31.35.0/24",
-    "API" => "10.31.36.0/24",
-    "WEB" => "10.31.37.0/24",
-    "AUTH" => "10.31.38.0/24",
-    "LOG" => "10.31.39.0/24",
-    "SHAPE" => "10.31.40.0/24",
-    "PDNS" => "10.31.41.0/24"
-];
 
-// 調整所需的列順序
-$desired_order = [
-    "ESXI",
-    "BORDER",
-    "MONITOR",
-    "WEB",
-    "API",
-    "DB",
-    "LOG",
-    "SHAPE",
-    "PDNS",
-    "AUTH"
-];
+$subnets = [];
+$desired_order = [];
+
+// 定義子網檔案的目錄
+$subnets_dir = __DIR__ . '/subnets/';
+
+// 遍歷每個 PHP 子網檔案
+foreach (glob($subnets_dir . '*.php') as $file) {
+    $data = include($file);
+    $category = strtoupper($data['category']); // 將 category 轉為大寫
+    $ip = $data['ip'];
+    $mask = $data['mask'];
+
+    // 加入子網數組
+    $subnets[$category] = "$ip/$mask";
+
+    // 加入到 desired_order 數組中（保持檔案順序）
+    $desired_order[] = $category;
+}
 
 // 讀取當前掃描結果和之前的掃描結果
 foreach ($files as $file) {
@@ -177,7 +200,7 @@ foreach ($desired_order as $label) {
         color: green;
         font-size: 18px;
         font-weight: bold;
-        cursor: not-allowed;
+        cursor: pointer;
     }
 
     .reserved {
@@ -216,7 +239,6 @@ foreach ($desired_order as $label) {
 
     .disabled {
         color: gray;
-        cursor: not-allowed;
     }
 
     td:not(.disabled):hover {
@@ -324,7 +346,29 @@ foreach ($desired_order as $label) {
         font-size: 1.2em;
     }
 
+    .snmp-result {
+        display: none;
+        margin-top: 5px;
+        font-size: 12px;
+        color: blue;
+    }
+
+    /* 新增遮罩层的样式 */
+    #overlay {
+        position: fixed;
+        display: none;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 9998;
+        cursor: not-allowed;
+    }
     </style>
+
     <script>
         function updateTable() {
             var xhr = new XMLHttpRequest();
@@ -339,7 +383,9 @@ foreach ($desired_order as $label) {
                     // 更新表格
                     <?php foreach ($desired_order as $label): ?>
                         for (var i = 1; i <= 254; i++) {
-                            var ip = "10.31.<?php echo (array_search($label, array_keys($subnets)) + 32); ?>." + i;
+                            var subnetIp = "<?php echo explode('/', $subnets[$label])[0]; ?>";
+                            var subnetBase = subnetIp.split('.').slice(0, 3).join('.');
+                            var ip = subnetBase + "." + i;
                             var cell = document.getElementById(ip + "_<?php echo $label; ?>");
 
                             if (cell) {
@@ -377,76 +423,232 @@ foreach ($desired_order as $label) {
         }
 
         // 設置定期更新，每10秒更新一次
-        setInterval(updateTable, 10000);
+        setInterval(updateTable, 5000);
         // 頁面載入時立即更新一次
         window.onload = updateTable;
 
-        function reserveIP(label, ip) {
-            var element = document.getElementById(ip + "_" + label);
-            var isReserved = element.classList.contains('reserved');
-            var isLost = element.classList.contains('lost');
+        function performSNMPwalk(ip) {
+            console.log("performSNMPwalk called for IP: " + ip);
 
-            if (element && element.classList.contains('disabled')) {
-                return; 
-            }
+            // 顯示遮罩層
+            document.getElementById('overlay').style.display = 'block';
 
-            var modal = document.getElementById("myModal");
-            var modalText = document.getElementById("modal-text");
-            var machineNameInput = document.getElementById("machine-name");
-            var confirmBtn = document.getElementsByClassName("confirm")[0];
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "SnmpWalk.php?ip=" + ip, true);
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    var result = xhr.responseText;
+                    console.log("SNMPwalk result: " + result);
 
-            if (isReserved) {
-                modalText.innerHTML = "確定取消預留 IP " + ip + " 嗎？";
-                machineNameInput.style.display = "none"; 
-            } else if (isLost) {
-                modalText.innerHTML = "確定取消紅燈狀態 IP " + ip + " 嗎？";
-                machineNameInput.style.display = "none"; 
-            } else {
-                modalText.innerHTML = "輸入主機名稱[預留] IP: " + ip;
-                machineNameInput.value = "";
-                machineNameInput.style.display = "block";
-            }
+                    // 彈出一個新的窗口顯示機器名稱
+                    var resultModal = document.createElement("div");
+                    resultModal.className = "modal show";
+                    resultModal.style.zIndex = "10000"; 
+                    resultModal.innerHTML = `
+                        <div class="modal-content">
+                            <span class="close" onclick="this.parentElement.parentElement.remove(); document.getElementById('overlay').style.display = 'none';">&times;</span>
+                            <p>SNMP掃描結果</p>
+                            <p>${result}</p>
+                            <button class="confirm" onclick="this.parentElement.parentElement.remove(); document.getElementById('overlay').style.display = 'none';">關閉</button>
+                        </div>
+                    `;
 
-            modal.classList.add('show');
-
-            confirmBtn.onclick = function() {
-                var machineName = machineNameInput.value;
-                var xhr = new XMLHttpRequest();
-
-                if (isReserved || isLost) {
-                    var url = "ReserveIp.php?label=" + label + "&ip=" + ip;
-                    if (isLost) {
-                        url += "&remove_red_light=true";
-                    }
-                    xhr.open("GET", url, true);
-                } else {
-                    if (!machineName) {
-                        alert("必須輸入機器名稱才能預留 IP。");
-                        return;
-                    }
-                    xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&machine=" + encodeURIComponent(machineName), true);
+                    document.body.appendChild(resultModal); // 將新窗口添加到頁面中
+                } else if (xhr.readyState == 4) {
+                    console.error("SNMPwalk request failed with status: " + xhr.status);
+                    document.getElementById('overlay').style.display = 'none'; // 如果請求失敗，移除遮罩層
                 }
-
-                xhr.onreadystatechange = function () {
-                    if (xhr.readyState == 4 && xhr.status == 200) {
-                        updateTable(); // 更新表格而不是重新加載頁面
-                    }
-                };
-                xhr.send();
-                modal.classList.remove('show');
             };
-
-            var closeBtn = document.getElementsByClassName("close")[0];
-            var cancelBtn = document.getElementsByClassName("cancel")[0];
-
-            closeBtn.onclick = cancelBtn.onclick = function() {
-                modal.classList.remove('show');
-            };
+            xhr.send();
         }
+
+function reserveIP(label, ip) {
+    var element = document.getElementById(ip + "_" + label);
+    var isUsed = element.classList.contains('used');
+    var isReserved = element.classList.contains('reserved');
+    var isLost = element.classList.contains('lost');
+
+    // 如果同時存在綠燈（used）和黃燈（reserved），執行取消註解的操作
+    if (isUsed && isReserved) {
+        console.log("綠燈和黃燈同時存在，執行取消註解操作...");
+
+        // 顯示取消註解的確認彈窗
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "none";
+
+        modalText.innerHTML = "確定要取消預留 IP " + ip + " 嗎？";
+        modal.classList.add('show');
+
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&remove_reservation=true", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    updateTable(); // 更新表格
+                }
+            };
+            xhr.send();
+            modal.classList.remove('show');
+        };
+
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
+
+        return; // 阻止其他操作
+    }
+
+    // 如果只有綠燈存在，執行 SNMP 掃描
+    if (isUsed && !isReserved) {
+        console.log("IP is used, performing SNMPwalk...");
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "none";
+
+        modalText.innerHTML = "您要對IP:" + ip + " 進行SNMP掃描嗎？";
+        modal.classList.add('show');
+
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            modal.classList.remove('show');
+            performSNMPwalk(ip); // 執行SNMP掃描
+        };
+
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
+
+        return; // 阻止後續的預留或取消紅燈操作
+    }
+
+    // 如果存在紅燈（lost），則取消預留狀態
+    if (isLost) {
+        console.log("紅燈存在，執行取消操作...");
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "none";
+
+        modalText.innerHTML = "確定取消紅燈狀態 IP " + ip + " 嗎？";
+        modal.classList.add('show');
+
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&remove_red_light=true", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    updateTable(); // 更新表格
+                }
+            };
+            xhr.send();
+            modal.classList.remove('show');
+        };
+
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
+
+        return; // 阻止其他操作
+    }
+
+    // 處理黃燈（reserved）的情況
+    if (isReserved && !isUsed) {
+        console.log("執行預留 IP 操作...");
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "none";
+
+        modalText.innerHTML = "確定取消預留 IP " + ip + " 嗎？";
+        modal.classList.add('show');
+
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&remove_reservation=true", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    updateTable(); // 更新表格
+                }
+            };
+            xhr.send();
+            modal.classList.remove('show');
+        };
+
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
+
+        return; // 阻止其他操作
+    }
+
+    // 如果既沒有綠燈也沒有紅燈，則處理預留IP
+    if (!isUsed && !isLost) {
+        console.log("執行預留 IP 操作...");
+        var modal = document.getElementById("myModal");
+        var modalText = document.getElementById("modal-text");
+        var machineNameInput = document.getElementById("machine-name");
+        machineNameInput.value = "";  // 清空輸入框的值
+        machineNameInput.style.display = "block";
+
+        modalText.innerHTML = "輸入主機名稱[預留] IP: " + ip;
+        modal.classList.add('show');
+
+        var confirmBtn = document.getElementsByClassName("confirm")[0];
+        confirmBtn.onclick = function() {
+            var machineName = machineNameInput.value;
+            if (!machineName) {
+                alert("必須輸入機器名稱才能預留 IP。");
+                return;
+            }
+
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "ReserveIp.php?label=" + label + "&ip=" + ip + "&machine=" + encodeURIComponent(machineName), true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    updateTable(); // 更新表格
+                }
+            };
+            xhr.send();
+            modal.classList.remove('show');
+        };
+
+        var closeBtn = document.getElementsByClassName("close")[0];
+        var cancelBtn = document.getElementsByClassName("cancel")[0];
+        closeBtn.onclick = cancelBtn.onclick = function() {
+            modal.classList.remove('show');
+        };
+
+        return; // 阻止其他操作
+    }
+}
+
+
     </script>
 </head>
 <body>
     <h1>NTP Site 內網IP 掃描</h1>
+    
+    <!-- 遮罩層 -->
+    <div id="overlay"></div>
+    
     <table>
         <tr>
             <th rowspan="2" class="sticky-header"></th>
@@ -464,7 +666,9 @@ foreach ($desired_order as $label) {
             <td><?php echo $i; ?></td>
             <?php foreach ($desired_order as $label): ?>
             <?php
-                $ip = "10.31." . (array_search($label, array_keys($subnets)) + 32) . "." . $i;
+                $subnet_ip = explode('/', $subnets[$label])[0];
+                $subnet_base = implode('.', array_slice(explode('.', $subnet_ip), 0, 3)); // 取前三個部分
+                $ip = $subnet_base . "." . $i;
                 $is_used = isset($table_data[$label][$i]) && $table_data[$label][$i] === "已使用";
                 $was_used = isset($prev_table_data[$label][$i]) && $prev_table_data[$label][$i] === "已使用";
                 $is_reserved = array_key_exists($ip, $reserved_machines);
@@ -491,6 +695,7 @@ foreach ($desired_order as $label) {
                 echo '🔴';
             }
             ?>
+            <div id="<?php echo $ip . '_snmp_result'; ?>" class="snmp-result"></div> <!-- 用於顯示 SNMP 結果 -->
             </td>
             <?php endforeach; ?>
         </tr>
