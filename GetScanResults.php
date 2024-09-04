@@ -7,18 +7,23 @@ $red_light_dir = 'fping_red_lights/';
 
 // 初始化表格數據
 $table_data = [];
-$subnets = [
-    "BORDER" => "10.31.32.0/24",
-    "MONITOR" => "10.31.33.0/24",
-    "ESXI" => "10.31.34.0/24",
-    "DB" => "10.31.35.0/24",
-    "API" => "10.31.36.0/24",
-    "WEB" => "10.31.37.0/24",
-    "AUTH" => "10.31.38.0/24",
-    "LOG" => "10.31.39.0/24",
-    "SHAPE" => "10.31.40.0/24",
-    "PDNS" => "10.31.41.0/24"
-];
+
+$subnets = [];
+
+// Define the directory where the subnet files are located
+$subnets_dir = __DIR__ . '/subnets/';
+
+// Iterate over each PHP file in the subnets directory
+foreach (glob($subnets_dir . '*.php') as $file) {
+    $data = include($file);
+    $category = strtoupper($data['category']); // Convert category to uppercase
+    $ip = $data['ip'];
+    $mask = $data['mask'];
+
+    // Add to subnets array
+    $subnets[$category] = "$ip/$mask";
+}
+
 
 // 讀取當前掃描結果和之前的掃描結果
 foreach ($subnets as $label => $subnet) {
